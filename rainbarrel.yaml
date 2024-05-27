@@ -1,0 +1,150 @@
+substitutions:
+  name: esphome-web-d52aec
+  friendly_name: ESPHome Heltec
+
+globals:
+  - id: low_distance
+    type: int 
+    initial_value: '107'
+  - id: high_distance
+    type: int
+    initial_value: '12'
+  - id: volume
+    type: int
+    initial_value: '1000'
+  - id: button_pressed_at
+    type: int
+  - id: display_permanent
+    type: bool
+    initial_value: 'false'
+    restore_value: true
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: false
+  project:
+    name: esphome.web
+    version: '1.0'
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: DEBUG
+  logs:
+    component: ERROR
+
+# Enable Home Assistant API
+api:
+
+# Allow Over-The-Air updates
+ota:
+
+# Allow provisioning Wi-Fi via serial
+improv_serial:
+
+wifi:
+  # Set up a wifi access point
+  ap: {}
+
+# In combination with the `ap` this allows the user
+# to provision wifi credentials to the device via WiFi AP.
+captive_portal:
+
+time:
+  - platform: homeassistant
+    id: esptime
+
+i2c:
+  sda: GPIO4
+  scl: GPIO15
+  frequency: 100kHz
+
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    reset_pin: 16
+    address: 0x3C
+    lambda: |-
+      int seconds_modulo = id(esptime).now().second % 10;
+      int pegel = id(low_distance)-(id(Distance).state*100);
+      float l_per_cm = (float)id(volume) / (id(low_distance)-id(high_distance));
+
+      if ( ((id(esptime).now().timestamp - id(button_pressed_at)) < 60) || (id(display_permanent) == true) )
+      {
+        if( seconds_modulo <= 3 ) {
+          it.print( 64,  8, id(font1), TextAlign::CENTER, "Pegel");
+          it.printf(64, 45, id(font2), TextAlign::CENTER, "%d cm", pegel );
+        } else if ( seconds_modulo <= 6 ) {
+          it.print(   64,  8, id(font1), TextAlign::CENTER, "Uhrzeit");
+          it.strftime(64, 39, id(font1), TextAlign::CENTER, "%d.%m.%Y", id(esptime).now());
+          it.strftime(64, 57, id(font1), TextAlign::CENTER, "%H:%M", id(esptime).now());
+        } else {
+          it.print( 64,  8, id(font1), TextAlign::CENTER, "Inhalt");
+          it.printf(64, 45, id(font2), TextAlign::CENTER, "%.0f l", (pegel*l_per_cm) );
+        }
+        if ( id(display_permanent) == true ) {
+          it.image( 110, 0, id(autorenew));
+        } 
+        it.rectangle( 0,23, 128,2);
+      } else {
+        it.fill(COLOR_OFF);
+      }
+
+font:    
+  - file: 'Roboto-Regular.ttf'
+    id: font1
+    size: 20
+  - file: 'Roboto-Regular.ttf'
+    id: font2
+    size: 34
+
+image:
+  - file: mdi:autorenew
+    id: autorenew
+    resize: 20x20
+
+dashboard_import:
+  package_import_url: github://esphome/example-configs/esphome-web/esp32.yaml@main
+  import_full_config: true
+
+# Sets up Bluetooth LE (Only on ESP32) to allow the user
+# to provision wifi credentials to the device.
+esp32_improv:
+  authorizer: none
+
+# To have a "next url" for improv serial
+web_server:
+
+# Simple configuration entry example
+sensor:
+  - platform: vl53l0x
+    name: "VL53L0x Distance"
+    id: Distance
+    address: 0x29
+    update_interval: 10s
+    long_range: true
+
+binary_sensor:
+  - platform: gpio
+    name: "Switch Heltec PRG"
+    pin: GPIO0
+    internal: true
+    on_press:
+      then:
+        - lambda: "id(button_pressed_at) = id(esptime).now().timestamp;"
+#        - logger.log:
+#            format: "GPIO0 pressed, new timestamp %d"
+#            args: [ 'id(button_pressed_at)' ]
+    on_double_click:
+      min_length: 50ms
+      max_length: 500ms
+      then:
+        - lambda: "id(display_permanent) = (id(display_permanent) == true) ? false : true;" 
+#        - logger.log:
+#            format: "GPIO0 toggle, new state %d"
+#            args: [ 'id(display_permanent)' ]
